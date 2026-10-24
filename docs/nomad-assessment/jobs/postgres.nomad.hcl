@@ -4,6 +4,14 @@ job "postgres" {
 
   group "db" {
     count = 1
+
+    restart {
+      attempts = 3
+      interval = "5m"
+      delay    = "10s"
+      mode     = "fail"
+    }
+
     network {
       mode = "host"
       port "db" {

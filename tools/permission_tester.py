@@ -918,8 +918,8 @@ def main():
     print("🎯 Comprehensive HubSpot API Permission Tester v2.0")
     print("="*60)
     
-    # Get API token
-    api_token = "pat-na2-9a92dd2d-66bf-46f2-abe0-2b862368c823"
+    # Prefer an environment variable and fall back to an interactive prompt.
+    api_token = os.getenv("HUBSPOT_API_TOKEN", "").strip()
     if not api_token:
         api_token = input("Enter your HubSpot API token: ").strip()
     

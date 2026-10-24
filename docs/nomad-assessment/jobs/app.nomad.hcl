@@ -8,6 +8,23 @@ job "hubspot" {
 
   group "api" {
     count = 1
+
+    update {
+      max_parallel      = 1
+      health_check      = "checks"
+      min_healthy_time  = "10s"
+      healthy_deadline  = "3m"
+      progress_deadline = "5m"
+      auto_revert       = true
+    }
+
+    restart {
+      attempts = 3
+      interval = "5m"
+      delay    = "10s"
+      mode     = "fail"
+    }
+
     network {
       mode = "host"
       port "http" {

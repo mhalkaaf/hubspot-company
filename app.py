@@ -4,9 +4,11 @@ import atexit
 import signal
 import os
 import sys
-from flask import Flask
+from flask import Flask, request
 from flask_cors import CORS
 from flask_restx import Api
+from prometheus_client import Counter, make_wsgi_app
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 from config import get_config
 from api.routes import scan_api as extraction_api
 from models.database import init_db, check_db_connection
@@ -20,6 +22,13 @@ from loki_logger import (
     TimedOperation
 )
 
+HTTP_REQUESTS = Counter(
+    "hubspot_http_requests_total",
+    "Total HTTP responses returned by the HubSpot extraction service",
+    ["method", "route", "status"],
+)
+
+
 def create_app(config_name=None):
     """Application factory"""
     app = Flask(__name__)
@@ -27,10 +36,6 @@ def create_app(config_name=None):
     # Load configuration
     config = get_config()
     app.config.from_object(config)
-    
-    # Debug: Print configuration to see what's loaded
-    print(f"DEBUG: DATABASE_URL = {getattr(config, 'DATABASE_URL', 'NOT_SET')}")
-    print(f"DEBUG: Config type = {type(config)}")
     
     # Initialize CORS - Fixed CORS configuration for Swagger
     CORS(app, origins="*", allow_headers=["Content-Type", "Authorization", "X-Request-ID"])
@@ -91,13 +96,39 @@ def create_app(config_name=None):
     @app.route('/health-simple')
     def health_simple():
         return {'status': 'ok', 'message': 'Service is running'}, 200
+
+    # Readiness is stricter than the legacy health endpoint: Consul should only
+    # advertise this service when both Flask and PostgreSQL are available.
+    @app.route('/ready')
+    def ready():
+        database_healthy = check_db_connection()
+        status_code = 200 if database_healthy else 503
+        return {
+            'status': 'ready' if database_healthy else 'not_ready',
+            'database': 'healthy' if database_healthy else 'unhealthy',
+        }, status_code
     
     # Add route to redirect root to docs
     @app.route('/')
     def index():
         return {'message': 'HubSpot Extraction Service API', 'docs': '/docs/'}, 200
+
+    @app.after_request
+    def count_http_responses(response):
+        route = request.url_rule.rule if request.url_rule else 'unmatched'
+        HTTP_REQUESTS.labels(
+            method=request.method,
+            route=route,
+            status=str(response.status_code),
+        ).inc()
+        return response
+
+    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+        '/metrics': make_wsgi_app(),
+    })
     
     return app
+
 
 def setup_logging(log_level='INFO'):
     """Configure application logging with Loki integration"""

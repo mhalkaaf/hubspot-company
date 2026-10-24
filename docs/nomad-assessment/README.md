@@ -227,7 +227,7 @@ sudo journalctl -u consul -u nomad -n 100 --no-pager
 Replace the SSH destination; leave this command running in another terminal:
 
 ```bash
-ssh -N -L 4646:127.0.0.1:4646 -L 8500:127.0.0.1:8500 -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 5104:127.0.0.1:5104 ubuntu@YOUR_SERVER_IP
+ssh -N -L 4646:127.0.0.1:4646 -L 8500:127.0.0.1:8500 -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 -L 5104:127.0.0.1:5104 root@YOUR_SERVER_IP
 ```
 
 Open `http://localhost:4646` and `http://localhost:8500`. Later, Grafana is `http://localhost:3000`, Prometheus is `http://localhost:9090`, and Swagger is `http://localhost:5104/docs/`.
@@ -236,66 +236,22 @@ Open `http://localhost:4646` and `http://localhost:8500`. Later, Grafana is `htt
 
 ## 4. Prepare your repository and app — Task 2
 
-Create an empty repository in **your own GitHub account**. Push your local clone to that repository, preserving the original as `upstream` if needed. Inspect `git remote -v` first; do not overwrite an existing remote blindly. Keep these preparation files in your fork so CI can read the Nomad specification.
+The repository remote already points to `https://github.com/mhalkaaf/hubspot-company`. Review and push the prepared Task 2 files so CI and the Ubuntu server can use the Nomad specifications. The shorter, execution-focused checklist is in `docs/nomad-assessment/TASK2.md`.
 
 The supplied staging image uses **5104** and `FLASK_ENV=staging`. It needs PostgreSQL via `DATABASE_URL`. The Compose file is reference material; you do not need to run its entire stack. No Redis calls were found in the application's Python source, so this runbook omits Redis.
 
-### Add readiness and Prometheus metrics before building
+### Application changes prepared before building
 
-Add `prometheus-client` to `requirements/requirements-stage.txt`, then pin the version you successfully rehearse with. Add these imports to `app.py`:
-
-```python
-from flask import request
-from prometheus_client import Counter, make_wsgi_app
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
-
-HTTP_REQUESTS = Counter(
-    "hubspot_http_requests_total", "HTTP responses", ["method", "route", "status"]
-)
-```
-
-Inside `create_app()`, immediately before its `return app`, add:
-
-```python
-    @app.route('/ready')
-    def ready():
-        healthy = check_db_connection()
-        return {"database": "healthy" if healthy else "unhealthy"}, 200 if healthy else 503
-
-    @app.after_request
-    def count_http_responses(response):
-        route = request.url_rule.rule if request.url_rule else "unmatched"
-        HTTP_REQUESTS.labels(request.method, route, str(response.status_code)).inc()
-        return response
-
-    app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
-        '/metrics': make_wsgi_app()
-    })
-```
-
-Why add `/ready`? The existing `/scan/health` can return HTTP 200 with a `degraded` database, and `/health-simple` only checks that Flask responds. Neither proves the database is ready. This new check makes Consul health meaningful. Remove the existing `DEBUG: DATABASE_URL` print in `app.py`, which prints credentials into application logs.
+The repository now includes the official Prometheus Python client, a `/metrics` endpoint, request counters, and a `/ready` endpoint that returns HTTP 503 when PostgreSQL is unavailable. This is stricter than the legacy `/scan/health`, which can return HTTP 200 while the database is degraded. The database URL debug print was also removed so credentials are not written to logs.
 
 Use one Gunicorn worker for this resource-constrained test. Python metrics are process-local by default; more workers require the client's multiprocess setup. The provided Nomad job overrides the image command to use one worker, two request threads, and console access/error logs. The supplied Dockerfile is still used for the build.
 
-Add a `.dockerignore` in the repository root, at minimum:
-
-```text
-.git
-.env
-.env.*
-!.env.example
-__pycache__
-*.pyc
-.venv
-venv
-logs
-*.docx
-```
+The prepared `.dockerignore` keeps Git data, environment files, logs, documentation, test caches, and the assessment Word file out of the image.
 
 ### Clone your prepared fork on Ubuntu
 
 ```bash
-git clone https://github.com/YOUR_ACCOUNT/hubspot-company.git
+git clone https://github.com/mhalkaaf/hubspot-company.git
 cd hubspot-company
 ```
 
@@ -306,6 +262,7 @@ All subsequent relative paths assume this repository root.
 ```bash
 sudo mkdir -p /opt/assessment/config /opt/assessment/data/{postgres,prometheus,grafana,loki,alloy}
 sudo cp docs/nomad-assessment/config/* /opt/assessment/config/
+sudo chown 70:70 /opt/assessment/data/postgres
 sudo chown 65534:65534 /opt/assessment/data/prometheus
 sudo chown 472:472 /opt/assessment/data/grafana
 sudo chown 10001:10001 /opt/assessment/data/loki
@@ -348,7 +305,7 @@ nomad job validate -var='image=hubspot-company:rehearsal' docs/nomad-assessment/
 nomad job plan -var='image=hubspot-company:rehearsal' docs/nomad-assessment/jobs/app.nomad.hcl
 nomad job run -var='image=hubspot-company:rehearsal' docs/nomad-assessment/jobs/app.nomad.hcl
 curl -fsS http://127.0.0.1:5104/ready
-curl -fsS http://127.0.0.1:5104/metrics | head
+curl -fsS http://127.0.0.1:5104/metrics | sed -n '1,15p'
 curl -fsS http://127.0.0.1:8500/v1/health/service/hubspot?passing=true | jq
 dig @127.0.0.1 -p 8600 hubspot.service.consul A +short
 dig @127.0.0.1 -p 8600 hubspot.service.consul SRV +short
@@ -369,14 +326,14 @@ An A record gives an IP; SRV also supplies the service port. The `.consul` suffi
 
 ## 5. Automate deployment with GitHub Actions — Task 2
 
-Copy `docs/nomad-assessment/deploy.workflow.yml.example` to `.github/workflows/deploy.yml` in your fork. It builds using `docker/Dockerfile.staging`, publishes to GHCR, smoke-tests against a real temporary PostgreSQL container, then submits the job through SSH. It deploys the exact image digest built by that run.
+The prepared `.github/workflows/deploy.yml` builds using `docker/Dockerfile.staging`, publishes to GHCR, smoke-tests against a real temporary PostgreSQL container, then submits the job through SSH. It deploys the exact image digest built by that run.
 
 Set these GitHub repository Actions secrets:
 
 | Secret | Value |
 |---|---|
 | `DEPLOY_HOST` | Server public IP/DNS |
-| `DEPLOY_USER` | Ubuntu SSH username |
+| `DEPLOY_USER` | `root` for the current assessment server |
 | `SSH_PRIVATE_KEY` | Dedicated deployment key's private part |
 | `SSH_KNOWN_HOSTS` | Verified server SSH host-key entry |
 
@@ -385,7 +342,7 @@ Generate a dedicated deployment key on your laptop and add its public key to the
 If the GHCR package is private, give the server a GitHub token with **read:packages** access to that package. Log in interactively on Ubuntu:
 
 ```bash
-sudo docker login ghcr.io --username YOUR_GITHUB_ACCOUNT
+sudo docker login ghcr.io --username mhalkaaf
 ```
 
 Enter the token at the prompt. Nomad's Docker driver reads the root Docker auth file configured in step 3. Do not embed the token in the job or workflow. GitHub Actions publishes with its own `GITHUB_TOKEN`; it does not need the server's read token. Ensure an organization-owned package grants the repository permission to publish/read if applicable.

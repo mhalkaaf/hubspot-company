@@ -368,8 +368,8 @@ def main():
     print("🎯 HubSpot Data Seeder with Faker")
     print("="*40)
     
-    # Get API token - remove hardcoded token for security
-    api_token = "pat-na2-9a92dd2d-66bf-46f2-abe0-2b862368c823"
+    # Prefer an environment variable and fall back to an interactive prompt.
+    api_token = os.getenv("HUBSPOT_API_TOKEN", "").strip()
     if not api_token:
         api_token = input("Enter HubSpot API token: ").strip()
     

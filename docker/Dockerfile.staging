@@ -38,7 +38,7 @@ EXPOSE 5104
 
 # Health check optimized for staging
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:5104/scan/health || exit 1
+    CMD curl -f http://localhost:5104/ready || exit 1
 
 # Staging command with Gunicorn (fewer workers, more debugging)
 CMD ["gunicorn", "--bind", "0.0.0.0:5104", "--workers", "2", "--keep-alive", "2", "app:app"]

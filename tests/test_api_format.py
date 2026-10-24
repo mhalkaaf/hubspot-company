@@ -9,7 +9,7 @@ def test_api_format():
     # Test with the legacy format (your credentials format)
     legacy_payload = {
         "connection_id": "123e4567-e89b-12d3-a456-426612264100",
-        "token": "pat-na2-9a92dd2d-66bf-46f2-abe0-2b862368c823",
+        "token": "pat-na2-mock-token-for-tests",
         "config": {
             "extract_companies": True,
             "extract_deals": True,
@@ -23,7 +23,7 @@ def test_api_format():
         "config": {
             "scanId": "123e4567-e89b-12d3-a456-426612264100",
             "auth": {
-                "accessToken": "pat-na2-9a92dd2d-66bf-46f2-abe0-2b862368c823"
+                "accessToken": "pat-na2-mock-token-for-tests"
             },
             "type": ["companies", "deals", "pipelines"],
             "extraction": {
